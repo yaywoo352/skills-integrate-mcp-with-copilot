@@ -1,0 +1,9 @@
+{
+  "teachers": [
+    {
+      "username": "teacher1",
+      "password": "hashed_password_1",
+      "role": "teacher"
+    }
+  ]
+}

@@ -5,11 +5,15 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Cookie, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
-import os
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+import json
+import hashlib
+import secrets
 from pathlib import Path
+import os
 
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
@@ -18,6 +22,59 @@ app = FastAPI(title="Mergington High School API",
 current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
+
+# Security
+security = HTTPBasic()
+
+# Session storage (in-memory for now)
+sessions = {}
+
+def load_users():
+    """Load users from JSON file"""
+    users_file = os.path.join(current_dir, "users.json")
+    if os.path.exists(users_file):
+        with open(users_file, 'r') as f:
+            return json.load(f)
+    return {"teachers": []}
+
+def verify_password(plain_password, hashed_password):
+    """Verify password (simple hash comparison for demo)"""
+    return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
+
+def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
+    """Validate user credentials"""
+    users = load_users()
+    for teacher in users["teachers"]:
+        if secrets.compare_digest(credentials.username, teacher["username"]):
+            if verify_password(credentials.password, teacher["password"]):
+                return teacher
+    raise HTTPException(
+        status_code=401,
+        detail="Invalid credentials",
+        headers={"WWW-Authenticate": "Basic"},
+    )
+
+@app.post("/login")
+def login(response: Response, user: dict = Depends(get_current_user)):
+    """Login endpoint"""
+    session_token = secrets.token_urlsafe(32)
+    sessions[session_token] = user
+    response.set_cookie(key="session", value=session_token, httponly=True)
+    return {"message": "Successfully logged in"}
+
+@app.post("/logout")
+def logout(response: Response, session: str = Cookie(None)):
+    """Logout endpoint"""
+    if session in sessions:
+        del sessions[session]
+    response.delete_cookie(key="session")
+    return {"message": "Successfully logged out"}
+
+def get_current_user_from_session(session: str = Cookie(None)):
+    """Get current user from session"""
+    if session not in sessions:
+        return None
+    return sessions[session]
 
 # In-memory activity database
 activities = {
